@@ -1,0 +1,152 @@
+---
+ - name: 'Prepare stands OSPF'
+   hosts: all
+   become: true
+   gather_facts: true
+   vars:
+
+   tasks:
+     - name: 'Install required packages'
+       yum:
+         name:
+           - nano
+           - net-tools
+           - epel-release
+           - tcpdump
+         state: present
+
+     - name: 'Enable forwarding'
+       sysctl:
+         name: net.ipv4.ip_forward
+         value: '1'
+         sysctl_set: yes
+
+     - name: 'Enable rp_filter'
+       sysctl:
+         name: net.ipv4.conf.all.rp_filter
+         value: '2'
+         sysctl_set: yes
+
+     - name: 'Create lo sub interface'
+       file:
+         path: /etc/sysconfig/network-scripts/ifcfg-lo.2
+         state: touch
+
+     - name: 'Add adreess lo:2 to r1'
+       blockinfile:
+         path: /etc/sysconfig/network-scripts/ifcfg-lo.2
+         block: |
+           DEVICE=lo:2
+           IPADDR=10.0.0.1
+           PREFIX=32
+           NETWORK=10.0.0.1
+           ONBOOT=yes
+       when: ansible_hostname=='r1'
+       notify: restart network
+
+     - name: 'Add adreess lo:2 to r2'
+       blockinfile:
+         path: /etc/sysconfig/network-scripts/ifcfg-lo.2
+         block: |
+           DEVICE=lo:2
+           IPADDR=10.0.0.2
+           PREFIX=32
+           NETWORK=10.0.0.2
+           ONBOOT=yes
+       when: ansible_hostname=='r2'
+       notify: restart network
+
+     - name: 'Add adreess lo:2 to r3'
+       blockinfile:
+         path: /etc/sysconfig/network-scripts/ifcfg-lo.2
+         block: |
+           DEVICE=lo:2
+           IPADDR=10.0.0.3
+           PREFIX=32
+           NETWORK=10.0.0.3
+           ONBOOT=yes
+       when: ansible_hostname=='r3'
+       notify: restart network
+
+     - name: 'Config SeLinux for use zebra'
+       shell: setsebool -P zebra_write_config 1
+
+     - name: 'Start Firewalld'
+       systemd:
+         name: firewalld
+         state: started
+
+     - name: 'Cpoy script for add ospf to firewalld'
+       copy:
+         src: ../templates/firewalld_ospf_enable.sh
+         dest: /root/firewalld_ospf_enable.sh
+
+     - name: 'Launch script add ospf'
+       shell: sh /root/firewalld_ospf_enable.sh
+
+     - name: 'Remove defroute'
+       blockinfile:
+         path: /etc/sysconfig/network-scripts/ifcfg-eth0
+         block: |
+           DEFROUTE=no
+       when: (ansible_hostname=='r2') or
+             (ansible_hostname=='r3')
+
+     - name: 'Restart Network'
+       systemd:
+         name: network
+         state: restarted
+
+     - name: 'Install quagga'
+       yum:
+         name: quagga
+         state: present
+       notify:
+         - restart zebra
+
+     - name: 'Copy ospf.conf from template for R1'
+       template:
+         src: ../templates/ospfd_r1.conf.j2
+         dest: /etc/quagga/ospfd.conf
+         owner: quagga
+         group: quaggavt
+       when: ansible_hostname=='r1'
+
+
+     - name: 'Copy ospf.conf from template for R2'
+       template:
+         src: ../templates/ospfd_r2.conf.j2
+         dest: /etc/quagga/ospfd.conf
+         owner: quagga
+         group: quaggavt
+       when: ansible_hostname=='r2'
+
+
+     - name: 'Copy ospf.conf from template for R3'
+       template:
+         src: ../templates/ospfd_r3.conf.j2
+         dest: /etc/quagga/ospfd.conf
+         owner: quagga
+         group: quaggavt
+       when: ansible_hostname=='r3'
+
+     - name: 'Restart ospfd'
+       systemd:
+         name: ospfd
+         state: restarted
+         enabled: yes
+
+   handlers:
+     - name: restart network
+       systemd:
+         name: network
+         state: restarted
+         enabled: yes
+
+     - name: restart zebra
+       systemd:
+         name: zebra
+         state: restarted
+         enabled: yes
+
+

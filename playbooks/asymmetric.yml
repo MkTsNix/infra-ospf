@@ -1,0 +1,20 @@
+---
+ - name: 'Prepare stands OSPF'
+   hosts: r2
+   become: true
+   gather_facts: true
+   vars:
+
+   tasks:
+     - name: 'Copy ospf.conf from template for R2'
+       template:
+         src: ../templates/asymmetric_ospfd_r2.conf.j2
+         dest: /etc/quagga/ospfd.conf
+         owner: quagga
+         group: quaggavt
+
+
+     - name: Restart service ospfd
+       service:
+         name: ospfd
+         state: restarted
